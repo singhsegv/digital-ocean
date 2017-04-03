@@ -1,0 +1,102 @@
+from django.shortcuts import render, HttpResponse
+import requests
+import digitalocean
+import json
+import twilio.twiml
+from .models import User
+import time
+from selenium.webdriver.common.action_chains import ActionChains
+from selenium import webdriver
+from twilio.rest import TwilioRestClient
+
+# Create your views here.
+ACCOUNT_SID = "ACcaf4170e9bd74a82cdaee492860800e5"
+AUTH_TOKEN = "7d2e027a23463261539b04c1fbfd07ca"
+
+def all_droplets(bearer):
+
+    headers = {'Content-Type': 'application/json'}
+    headers['Authorization'] = 'Bearer %s' %bearer
+
+    r = requests.get('https://api.digitalocean.com/v2/droplets', headers=headers)
+    res = json.loads(r.text)
+
+    msg = ''
+
+    for d in droplets:
+        d_id = str(d['id'])
+        name = str(d['name'])
+        memory = str(d['memory'])
+        cvpus = str(d['vcpus'])
+        disk = str(d['disk'])
+        locked = str(d['locked'])
+        status = str(d['status'])
+        date = str(d['created_at'])
+        img_id = str(d['image']['id'])
+        slug = str(d['image']['slug'])
+        price_mon = str(d['size']['price_monthly'])
+        price_hour = str(d['size']['price_hourly'])
+        region = str(d['region']['name'])
+
+        msg += d_id + name + memory + cvpus + disk + locked + status + date + img_id + slug + price_mon + price_hour + region + '\n\n'
+
+def get_message(request):
+    msg_from = request.GET.get('From')
+    msg_body = request.GET.get('Body')
+    body = msg_body.split(' ')
+
+    if body[0].lower() == 'register':
+        register(body[1], body[2], msg_from)
+
+    # resp = twilio.twiml.Response()
+    # resp.message(msg_body)
+    return HttpResponse('done')
+
+def register(email, password, phone):
+    try:
+        user = User.objects.get(email=email)
+        print('already had')
+    except User.DoesNotExist:
+        user = User(email=email, password=password, phone=phone)
+        user.save()
+        oauth(email, password)
+
+def get_code(request):
+    code=request.GET.get('code')
+    url="https://cloud.digitalocean.com/v1/oauth/token?client_id=ecf52935c659f9905bff80008805b206a4b3e51cbe78a1dfc68b368498cb17c5&client_secret=ab6b38f3fedbaf325935f7b32d39776d5cb4b06dd703ae6035aa47c12216a7fd&grant_type=authorization_code&code="+code+"&redirect_uri=https://bfa1afa3.ngrok.io/callback"
+    r=requests.post(url)
+    res=r.text
+    ##saving token
+    resp = json.loads(res)
+    email = resp['email']
+    token = resp['access_token']
+    user = User.objects.get(email=email)
+    user.token = token
+    user.save()
+
+    client = TwilioRestClient(ACCOUNT_SID, AUTH_TOKEN)
+    client.messages.create(
+    to=user.phone,
+    from_="+16202773118",
+    body="registered",
+    )
+
+    return HttpResponse(json.dumps(res))
+
+def oauth(email,passw):
+    print(email + passw)
+    driver=webdriver.Chrome('/home/dilpreet/digiocean/digitaloceanreturns/digital_ocean/chromedriver')
+    driver.get('https://cloud.digitalocean.com/v1/oauth/authorize?client_id=ecf52935c659f9905bff80008805b206a4b3e51cbe78a1dfc68b368498cb17c5&redirect_uri=https://bfa1afa3.ngrok.io/callback&response_type=code')
+    time.sleep(4)
+    name=driver.find_element_by_name('user[email]')
+    name.send_keys(email)
+    passw=driver.find_element_by_name('user[password]')
+    passw.send_keys(passw)
+    passw.submit()
+    time.sleep(5)
+    box=driver.find_element_by_id('ember975')
+    hov = ActionChains(driver).move_to_element(box).click()
+    hov.perform()
+
+    btn=driver.find_element_by_name('client_id')
+    btn.submit()
